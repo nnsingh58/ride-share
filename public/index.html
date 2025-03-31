@@ -7,6 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
+        /* [Previous CSS unchanged] */
         * {
             margin: 0;
             padding: 0;
@@ -225,7 +226,8 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map, routeLayer;
+        let map = null; // Explicitly initialize as null
+        let routeLayer;
         let rides = [];
         let rideHistory = [];
         const RATE_PER_KM = 3; // ₹3/km
@@ -234,6 +236,9 @@
         // मानचित्र प्रारंभ करें
         function initMap() {
             try {
+                if (!document.getElementById('map')) {
+                    throw new Error('मानचित्र का DOM तत्व नहीं मिला');
+                }
                 map = L.map('map').setView([20.5937, 78.9629], 5);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -270,7 +275,16 @@
             if (!startInput || !endInput) {
                 console.log('प्रारंभ या गंतव्य स्थान खाली है');
                 alert('कृपया प्रारंभ और गंतव्य स्थान भरें');
-                return { distance: 0, fare: 0, time: 0, cities: [] };
+                return { distance: 0, naturalFare: 0, time: 0, cities: [] };
+            }
+
+            if (!map) {
+                console.error('मानचित्र उपलब्ध नहीं है, पुनः प्रारंभ कर रहा हूँ...');
+                initMap();
+                if (!map) {
+                    alert('मानचित्र प्रारंभ करने में विफल, कृपया पेज रिफ्रेश करें।');
+                    return { distance: 0, naturalFare: 0, time: 0, cities: [] };
+                }
             }
 
             console.log('किराया और रूट गणना शुरू हो रही है...');
@@ -289,7 +303,9 @@
                     endCoords = await geocode(endInput);
                 }
 
-                if (routeLayer) map.removeLayer(routeLayer);
+                if (routeLayer && map) {
+                    map.removeLayer(routeLayer);
+                }
 
                 console.log('OSRM API कॉल कर रहा हूँ...');
                 const response = await fetch(
@@ -303,13 +319,13 @@
                 map.fitBounds(routeLayer.getBounds());
 
                 const distance = data.routes[0].distance / 1000; // किमी में
-                const fare = Math.round(distance * RATE_PER_KM);
+                const naturalFare = Math.round(distance * RATE_PER_KM);
                 const time = distance / AVG_SPEED_KMH; // घंटों में
-                console.log(`दूरी: ${distance} किमी, किराया: ₹${fare}, समय: ${time.toFixed(2)} घंटे`);
+                console.log(`दूरी: ${distance} किमी, प्राकृतिक किराया: ₹${naturalFare}, समय: ${time.toFixed(2)} घंटे`);
 
-                // प्रमुख शहरों को चिह्नित करें (सैंपल के लिए हर 200 किमी पर)
+                // प्रमुख शहरों को चिह्नित करें
                 const cities = [];
-                const step = Math.floor(coordinates.length / 5); // 5 बिंदु लेते हैं
+                const step = Math.floor(coordinates.length / 5);
                 for (let i = 0; i < coordinates.length; i += step) {
                     if (i === 0) {
                         L.marker([startCoords.lat, startCoords.lon]).addTo(map).bindPopup(startCoords.name).openPopup();
@@ -326,24 +342,24 @@
                 }
 
                 const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `अनुमानित किराया: ₹${fare} (${distance.toFixed(2)} किमी, ~${time.toFixed(1)} घंटे)<br>रास्ते के शहर: ${cities.join(', ')}`;
+                fareEstimate.innerHTML = `अनुमानित किराया: ₹${naturalFare} (${distance.toFixed(2)} किमी, ~${time.toFixed(1)} घंटे)<br>रास्ते के शहर: ${cities.join(', ')}`;
                 console.log('अनुमानित किराया और शहर DOM में सेट किए गए:', fareEstimate.innerHTML);
 
-                return { distance, fare, time, cities };
+                return { distance, naturalFare, time, cities };
             } catch (error) {
                 console.error('रूट गणना में त्रुटि:', error);
                 alert('रूट गणना में विफल: ' + error.message);
 
                 const distance = haversineDistance(startCoords.lat, startCoords.lon, endCoords.lat, endCoords.lon);
-                const fare = Math.round(distance * RATE_PER_KM);
+                const naturalFare = Math.round(distance * RATE_PER_KM);
                 const time = distance / AVG_SPEED_KMH;
                 const cities = [startCoords.name, endCoords.name];
 
                 const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `अनुमानित किराया (फॉलबैक): ₹${fare} (${distance.toFixed(2)} किमी, ~${time.toFixed(1)} घंटे)<br>रास्ते के शहर: ${cities.join(', ')}`;
+                fareEstimate.innerHTML = `अनुमानित किराया (फॉलबैक): ₹${naturalFare} (${distance.toFixed(2)} किमी, ~${time.toFixed(1)} घंटे)<br>रास्ते के शहर: ${cities.join(', ')}`;
                 console.log('फॉलबैक किराया DOM में सेट किया गया:', fareEstimate.innerHTML);
 
-                if (routeLayer) map.removeLayer(routeLayer);
+                if (routeLayer && map) map.removeLayer(routeLayer);
                 routeLayer = L.polyline([[startCoords.lat, startCoords.lon], [endCoords.lat, endCoords.lon]], 
                     { color: '#2563eb', weight: 4 }).addTo(map);
                 map.fitBounds(routeLayer.getBounds());
@@ -351,11 +367,11 @@
                 L.marker([startCoords.lat, startCoords.lon]).addTo(map).bindPopup(startCoords.name).openPopup();
                 L.marker([endCoords.lat, endCoords.lon]).addTo(map).bindPopup(endCoords.name).openPopup();
 
-                return { distance, fare, time, cities };
+                return { distance, naturalFare, time, cities };
             }
         }
 
-        // रिवर्स जियोकोडिंग (निर्देशांक से शहर का नाम)
+        // रिवर्स जियोकोडिंग
         async function reverseGeocode(lat, lon) {
             try {
                 const response = await fetch(
@@ -369,9 +385,9 @@
             }
         }
 
-        // Haversine फॉर्मूला फॉलबैक
+        // Haversine फॉर्मूला
         function haversineDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371; // पृथ्वी की त्रिज्या किमी में
+            const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -406,10 +422,10 @@
         }
 
         // राइड प्रकाशित करें
-        function publishRide() {
+        async function publishRide() {
             const start = document.getElementById('start').value.trim();
             const end = document.getElementById('end').value.trim();
-            const customFare = document.getElementById('custom-fare').value.trim();
+            const customFare = parseInt(document.getElementById('custom-fare').value.trim());
 
             if (!start || !end) {
                 alert('कृपया प्रारंभ और गंतव्य स्थान भरें');
@@ -421,11 +437,19 @@
                 return;
             }
 
+            const result = await calculateAndSetFare();
+            const naturalFare = result.naturalFare;
+            const distance = result.distance;
+            const percentageDiff = naturalFare > 0 ? 
+                Math.round(((customFare - naturalFare) / naturalFare) * 100) : 0;
+
             const ride = { 
                 start, 
                 end, 
-                fare: customFare, 
-                owner: 'ड्राइवर/मालिक', 
+                customFare, 
+                naturalFare, 
+                percentageDiff, 
+                distance,
                 timestamp: new Date().toLocaleString('hi-IN') 
             };
             rides.push(ride);
@@ -439,14 +463,20 @@
         function displayRides(ridesToShow) {
             const rideList = document.getElementById('ride-list');
             rideList.innerHTML = ridesToShow.length ? 
-                ridesToShow.map(ride => `<p>${ride.start} से ${ride.end} - ₹${ride.fare} (${ride.owner} द्वारा)</p>`).join('') : 
+                ridesToShow.map(ride => {
+                    const diffSign = ride.percentageDiff >= 0 ? '+' : '';
+                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)</p>`;
+                }).join('') : 
                 '<p>कोई राइड उपलब्ध नहीं</p>';
         }
 
         function displayHistory(history) {
             const historyList = document.getElementById('ride-history');
             historyList.innerHTML = history.length ? 
-                history.map(ride => `<p>${ride.start} से ${ride.end} - ₹${ride.fare} (${ride.owner} द्वारा) @ ${ride.timestamp}</p>`).join('') : 
+                history.map(ride => {
+                    const diffSign = ride.percentageDiff >= 0 ? '+' : '';
+                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%) @ ${ride.timestamp}</p>`;
+                }).join('') : 
                 '<p>कोई राइड इतिहास नहीं</p>';
         }
 
@@ -455,10 +485,12 @@
             document.getElementById('end').value = '';
             document.getElementById('custom-fare').value = '';
             document.getElementById('fare-estimate').innerHTML = '';
-            if (routeLayer) map.removeLayer(routeLayer);
-            map.eachLayer(layer => {
-                if (layer instanceof L.Marker) map.removeLayer(layer);
-            });
+            if (routeLayer && map) map.removeLayer(routeLayer);
+            if (map) {
+                map.eachLayer(layer => {
+                    if (layer instanceof L.Marker) map.removeLayer(layer);
+                });
+            }
         }
 
         // आपातकाल रिपोर्ट
