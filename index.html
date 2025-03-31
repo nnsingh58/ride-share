@@ -194,9 +194,9 @@
             transform: scale(1.05);
         }
 
-        .fallback-warning {
-            background: #fff3cd;
-            color: #856404;
+        .error-warning {
+            background: #f8d7da;
+            color: #721c24;
             padding: 10px;
             border-radius: 5px;
             margin-bottom: 10px;
@@ -341,54 +341,7 @@
             }
         }
 
-        // फॉलबैक मार्ग प्रदर्शित करें
-        function showFallbackRoute(start, end) {
-            try {
-                if (routeLayer && map) {
-                    map.removeLayer(routeLayer);
-                }
-                
-                routeLayer = L.polyline(
-                    [[start.lat, start.lon], [end.lat, end.lon]], 
-                    { color: '#ff0000', dashArray: '5,5', weight: 3 }
-                ).addTo(map);
-                
-                // सभी पुराने मार्कर्स हटाएं
-                map.eachLayer(function(layer) {
-                    if (layer instanceof L.Marker) {
-                        map.removeLayer(layer);
-                    }
-                });
-
-                // नए मार्कर्स जोड़ें
-                L.marker([start.lat, start.lon])
-                    .bindPopup(`प्रारंभ: ${start.name}`)
-                    .addTo(map);
-                
-                L.marker([end.lat, end.lon])
-                    .bindPopup(`गंतव्य: ${end.name}`)
-                    .addTo(map);
-                
-                map.fitBounds([[start.lat, start.lon], [end.lat, end.lon]]);
-
-            } catch (error) {
-                console.error('फॉलबैक मार्ग त्रुटि:', error);
-            }
-        }
-
-        // Haversine फॉर्मूला
-        function haversineDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R * c;
-        }
-
-        // किराया, समय और रूट गणना
+        // किराया, समय और रूट गणना (केवल सड़क मार्ग)
         async function calculateAndSetFare() {
             const startInput = document.getElementById('start').value.trim();
             const endInput = document.getElementById('end').value.trim();
@@ -450,7 +403,7 @@
                 const fareEstimate = document.getElementById('fare-estimate');
                 fareEstimate.innerHTML = `
                     <div>अनुमानित किराया: ₹${naturalFare}</div>
-                    <div>दूरी: ${roadDistance.toFixed(2)} किमी (सड़क मार्ग)</div>
+                    <div>दूरी: ${roadDistance.toFixed(2)} किमी</div>
                     <div>समय: ${formatTime(time)}</div>
                     <div>रास्ते के शहर: ${startCoords.name} से ${endCoords.name}</div>
                 `;
@@ -467,50 +420,11 @@
 
             } catch (error) {
                 console.error('त्रुटि:', error);
-                // फॉलबैक प्रक्रिया
-                try {
-                    const startCoords = await geocode(startInput);
-                    const endCoords = await geocode(endInput);
-                    
-                    if (!startCoords || !endCoords) {
-                        throw new Error('फॉलबैक के लिए स्थान निर्देशांक उपलब्ध नहीं');
-                    }
-
-                    const fallbackDistance = haversineDistance(
-                        startCoords.lat, startCoords.lon,
-                        endCoords.lat, endCoords.lon
-                    );
-                    const naturalFare = Math.round(fallbackDistance * RATE_PER_KM);
-                    const time = fallbackDistance / AVG_SPEED_KMH;
-                    
-                    // फॉलबैक मार्ग दिखाएं
-                    showFallbackRoute(startCoords, endCoords);
-
-                    // परिणाम प्रदर्शित करें
-                    const fareEstimate = document.getElementById('fare-estimate');
-                    fareEstimate.innerHTML = `
-                        <div class="fallback-warning">⚠️ सड़क मार्ग डेटा उपलब्ध नहीं, हवाई दूरी दिखाई जा रही है</div>
-                        <div>अनुमानित किराया: ₹${naturalFare}</div>
-                        <div>दूरी: ${fallbackDistance.toFixed(2)} किमी (हवाई मार्ग)</div>
-                        <div>समय: ${formatTime(time)}</div>
-                        <div>रास्ते के शहर: ${startCoords.name} से ${endCoords.name}</div>
-                    `;
-
-                    currentCalculation = {
-                        distance: fallbackDistance,
-                        naturalFare,
-                        time,
-                        cities: [startCoords.name, endCoords.name],
-                        isFallback: true
-                    };
-
-                    return currentCalculation;
-
-                } catch (fallbackError) {
-                    console.error('फॉलबैक त्रुटि:', fallbackError);
-                    alert('रूट गणना विफल! कृपया स्थानों को पुनः जांचें');
-                    return { distance: 0, naturalFare: 0, time: 0, cities: [] };
-                }
+                const fareEstimate = document.getElementById('fare-estimate');
+                fareEstimate.innerHTML = `
+                    <div class="error-warning">त्रुटि: रूट गणना विफल! कृपया स्थानों को पुनः जांचें</div>
+                `;
+                return { distance: 0, naturalFare: 0, time: 0, cities: [] };
             }
         }
 
@@ -571,7 +485,6 @@
                     <p>प्राकृतिक किराया (₹${RATE_PER_KM}/किमी): ₹${naturalFare}</p>
                     <p>आपका प्रस्तावित किराया: ₹${customFare} (${percentageDiff >= 0 ? '+' : ''}${percentageDiff}%)</p>
                     <p>अंतिम किराया: ₹${actualFare}</p>
-                    ${result.isFallback ? '<p class="fallback-warning">⚠️ नोट: यह हवाई दूरी पर आधारित है</p>' : ''}
                 `;
 
                 const ride = { 
@@ -582,7 +495,6 @@
                     percentageDiff, 
                     actualFare,
                     distance: result.distance,
-                    isFallback: result.isFallback,
                     timestamp: new Date().toLocaleString('hi-IN') 
                 };
                 
@@ -609,7 +521,7 @@
                                 ${ride.start} से ${ride.end}<br>
                                 किराया: ₹${ride.actualFare}<br>
                                 (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)<br>
-                                ${ride.isFallback ? '⚠️ हवाई दूरी' : '🛣️ सड़क मार्ग'}
+                                🛣️ सड़क मार्ग
                             </p>
                         `;
                     }).join('') : 
@@ -633,7 +545,7 @@
                                 ${ride.start} से ${ride.end}<br>
                                 किराया: ₹${ride.actualFare}<br>
                                 (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)<br>
-                                ${ride.isFallback ? '⚠️ हवाई दूरी' : '🛣️ सड़क मार्ग'}
+                                🛣️ सड़क मार्ग
                             </p>
                         `;
                     }).join('') : 
