@@ -4,9 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>भारत भ्रमण/दर्शन योजना</title>
+    <!-- Add favicon link to prevent 404 error -->
+    <link rel="icon" href="data:,">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
+        /* [Previous CSS unchanged] */
         * {
             margin: 0;
             padding: 0;
@@ -341,7 +344,7 @@
             }
         }
 
-        // किराया, समय और रूट गणना (केवल सड़क मार्ग)
+        // किराया, समय और रूट गणना (सड़क मार्ग)
         async function calculateAndSetFare() {
             const startInput = document.getElementById('start').value.trim();
             const endInput = document.getElementById('end').value.trim();
@@ -371,31 +374,28 @@
                 const data = await response.json();
                 
                 // डेटा सत्यापन
-                if (!data.routes || !Array.isArray(data.routes)) {
+                if (!data.routes || !Array.isArray(data.routes) || data.routes.length === 0) {
                     throw new Error('अमान्य रूट डेटा');
                 }
 
-                if (!data.routes[0] || !data.routes[0].geometry || !data.routes[0].geometry.coordinates) {
+                const route = data.routes[0];
+                if (!route.geometry || !route.geometry.coordinates || route.geometry.coordinates.length === 0) {
                     throw new Error('रूट ज्यामिति उपलब्ध नहीं');
                 }
 
                 // निर्देशांक प्रसंस्करण
-                const coordinates = data.routes[0].geometry.coordinates.map(c => {
+                const coordinates = route.geometry.coordinates.map(c => {
                     if (!Array.isArray(c) || c.length < 2) {
                         throw new Error('अमान्य निर्देशांक प्रारूप');
                     }
                     return [c[1], c[0]]; // [lat, lon] में कनवर्ट करें
                 });
 
-                if (coordinates.length === 0) {
-                    throw new Error('रूट निर्देशांक उपलब्ध नहीं');
-                }
-
                 // मानचित्र अपडेट
                 updateMapRoute(coordinates, startCoords, endCoords);
 
                 // दूरी गणना
-                const roadDistance = data.routes[0].distance / 1000;
+                const roadDistance = route.distance / 1000;
                 const naturalFare = Math.round(roadDistance * RATE_PER_KM);
                 const time = roadDistance / AVG_SPEED_KMH;
 
@@ -412,8 +412,7 @@
                     distance: roadDistance,
                     naturalFare,
                     time,
-                    cities: [startCoords.name, endCoords.name],
-                    isFallback: false
+                    cities: [startCoords.name, endCoords.name]
                 };
 
                 return currentCalculation;
@@ -422,7 +421,7 @@
                 console.error('त्रुटि:', error);
                 const fareEstimate = document.getElementById('fare-estimate');
                 fareEstimate.innerHTML = `
-                    <div class="error-warning">त्रुटि: रूट गणना विफल! कृपया स्थानों को पुनः जांचें</div>
+                    <div class="error-warning">त्रुटि: ${error.message || 'रूट गणना विफल! कृपया स्थानों को पुनः जांचें'}</div>
                 `;
                 return { distance: 0, naturalFare: 0, time: 0, cities: [] };
             }
