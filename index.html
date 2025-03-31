@@ -206,8 +206,8 @@
         </div>
 
         <div class="search-box">
-            <input type="text" id="start" placeholder="🚩 प्रारंभ स्थल (जैसे: दिल्ली)">
-            <input type="text" id="end" placeholder="🏁 गंतव्य स्थल (जैसे: मुंबई)">
+            <input type="text" id="start" placeholder="🚩 प्रारंभ बस स्टैंड (जैसे: Delhi Bus Stand)">
+            <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Bhopal Bus Stand)">
             <button onclick="listRide()" class="list-btn">राइड लिस्ट करें</button>
             <button onclick="searchRide()" class="search-btn">राइड खोजें</button>
         </div>
@@ -226,7 +226,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map = null; // Explicitly initialize as null
+        let map = null;
         let routeLayer = null;
         let rides = [];
         let rideHistory = [];
@@ -236,14 +236,15 @@
         // मानचित्र प्रारंभ करें
         function initMap() {
             try {
-                if (!document.getElementById('map')) {
+                const mapElement = document.getElementById('map');
+                if (!mapElement) {
                     throw new Error('मानचित्र का DOM तत्व नहीं मिला');
                 }
                 if (map) {
-                    console.log('मानचित्र पहले से मौजूद है, पुनर्जनन नहीं कर रहा');
+                    console.log('मानचित्र पहले से मौजूद है');
                     return;
                 }
-                map = L.map('map').setView([20.5937, 78.9629], 5);
+                map = L.map(mapElement).setView([20.5937, 78.9629], 5);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
                     maxZoom: 18,
@@ -251,7 +252,7 @@
                 console.log('मानचित्र सफलतापूर्वक लोड हुआ!');
             } catch (error) {
                 console.error('मानचित्र लोड करने में त्रुटि:', error);
-                map = null; // Reset to null on failure
+                map = null;
                 alert('मानचित्र लोड करने में विफल! कृपया पेज रिफ्रेश करें।');
             }
         }
@@ -259,11 +260,12 @@
         // जियोकोडिंग फंक्शन
         async function geocode(location) {
             try {
+                const query = location.toLowerCase().includes('bus stand') ? location : `${location} Bus Stand`;
                 const response = await fetch(
-                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
                 );
                 const data = await response.json();
-                if (!data.length) throw new Error('स्थान नहीं मिला: ' + location);
+                if (!data.length) throw new Error('बस स्टैंड नहीं मिला: ' + location);
                 console.log(`जियोकोडिंग सफल: ${location} -> ${data[0].lat}, ${data[0].lon}`);
                 return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), name: data[0].display_name.split(',')[0] };
             } catch (error) {
@@ -279,7 +281,7 @@
 
             if (!startInput || !endInput) {
                 console.log('प्रारंभ या गंतव्य स्थान खाली है');
-                alert('कृपया प्रारंभ और गंतव्य स्थान भरें');
+                alert('कृपया प्रारंभ और गंतव्य बस स्टैंड भरें');
                 return { distance: 0, naturalFare: 0, time: 0, cities: [] };
             }
 
@@ -295,18 +297,8 @@
             console.log('किराया और रूट गणना शुरू हो रही है...');
             let startCoords, endCoords;
             try {
-                if (startInput.includes(',')) {
-                    startCoords = startInput.split(',').map(Number);
-                    startCoords = { lat: startCoords[0], lon: startCoords[1], name: 'प्रारंभ' };
-                } else {
-                    startCoords = await geocode(startInput);
-                }
-                if (endInput.includes(',')) {
-                    endCoords = endInput.split(',').map(Number);
-                    endCoords = { lat: endCoords[0], lon: endCoords[1], name: 'गंतव्य' };
-                } else {
-                    endCoords = await geocode(endInput);
-                }
+                startCoords = await geocode(startInput);
+                endCoords = await geocode(endInput);
 
                 if (routeLayer && map) {
                     map.removeLayer(routeLayer);
@@ -436,7 +428,7 @@
             const customFare = parseInt(document.getElementById('custom-fare').value.trim());
 
             if (!start || !end) {
-                alert('कृपया प्रारंभ और गंतव्य स्थान भरें');
+                alert('कृपया प्रारंभ और गंतव्य बस स्टैंड भरें');
                 return;
             }
 
@@ -450,7 +442,8 @@
             const distance = result.distance;
             const percentageDiff = naturalFare > 0 ? 
                 Math.round(((customFare - naturalFare) / naturalFare) * 100) : 0;
-            const netFare = Math.round(naturalFare * (1 + percentageDiff / 100)); // Adjusted fare
+            const actualFare = percentageDiff < 0 ? 
+                Math.round(naturalFare * (1 + percentageDiff / 100)) : naturalFare; // Only apply discount if negative
 
             const ride = { 
                 start, 
@@ -458,7 +451,7 @@
                 customFare, 
                 naturalFare, 
                 percentageDiff, 
-                netFare,
+                actualFare,
                 distance,
                 timestamp: new Date().toLocaleString('hi-IN') 
             };
@@ -475,7 +468,7 @@
             rideList.innerHTML = ridesToShow.length ? 
                 ridesToShow.map(ride => {
                     const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, शुद्ध: ₹${ride.netFare})</p>`;
+                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, वास्तविक: ₹${ride.actualFare})</p>`;
                 }).join('') : 
                 '<p>कोई राइड उपलब्ध नहीं</p>';
         }
@@ -485,7 +478,7 @@
             historyList.innerHTML = history.length ? 
                 history.map(ride => {
                     const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, शुद्ध: ₹${ride.netFare}) @ ${ride.timestamp}</p>`;
+                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, वास्तविक: ₹${ride.actualFare}) @ ${ride.timestamp}</p>`;
                 }).join('') : 
                 '<p>कोई राइड इतिहास नहीं</p>';
         }
