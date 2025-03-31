@@ -207,7 +207,7 @@
 
         <div class="search-box">
             <input type="text" id="start" placeholder="🚩 प्रारंभ बस स्टैंड (जैसे: Ghaziabad Bus Stand)">
-            <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Lucknow Bus Stand)">
+            <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Aligarh Bus Stand)">
             <button onclick="listRide()" class="list-btn">राइड लिस्ट करें</button>
             <button onclick="searchRide()" class="search-btn">राइड खोजें</button>
         </div>
@@ -280,7 +280,7 @@
                 return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), name: data[0].display_name.split(',')[0] };
             } catch (error) {
                 console.error('जियोकोडिंग त्रुटि:', error);
-                return null; // Return null instead of throwing to handle gracefully
+                return null;
             }
         }
 
@@ -295,12 +295,13 @@
                 return { distance: 0, naturalFare: 0, time: 0, cities: [] };
             }
 
-            if (!map) {
-                console.log('मानचित्र उपलब्ध नहीं है, पुनः प्रारंभ कर रहा हूँ...');
+            if (!map || typeof map.removeLayer !== 'function') {
+                console.log('मानचित्र उपलब्ध नहीं है या अमान्य है, पुनः प्रारंभ कर रहा हूँ...');
+                map = null; // Explicitly clear invalid map
                 initMap();
                 if (!map) {
                     console.error('मानचित्र पुनर्जनन विफल');
-                    return { distance: 0, naturalFare: 0, time: 0,cities: [] };
+                    return { distance: 0, naturalFare: 0, time: 0, cities: [] };
                 }
             }
 
@@ -315,7 +316,9 @@
             }
 
             try {
+                console.log('मानचित्र की स्थिति जांच: ', map ? 'उपलब्ध' : 'अनुपलब्ध');
                 if (routeLayer && map) {
+                    console.log('पिछला रूट हटा रहा हूँ...');
                     map.removeLayer(routeLayer);
                     routeLayer = null;
                 }
@@ -372,6 +375,7 @@
                 console.log('फॉलबैक किराया DOM में सेट किया गया:', fareEstimate.innerHTML);
 
                 if (routeLayer && map) {
+                    console.log('फॉलबैक में पिछला रूट हटा रहा हूँ...');
                     map.removeLayer(routeLayer);
                     routeLayer = null;
                 }
@@ -506,6 +510,7 @@
             document.getElementById('custom-fare').value = '';
             document.getElementById('fare-estimate').innerHTML = '';
             if (routeLayer && map) {
+                console.log('फॉर्म रीसेट: रूट हटा रहा हूँ...');
                 map.removeLayer(routeLayer);
                 routeLayer = null;
             }
