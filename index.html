@@ -224,8 +224,8 @@
         <div class="search-box">
             <input type="text" id="start" placeholder="🚩 प्रारंभ बस स्टैंड (जैसे: Ghaziabad Bus Stand)">
             <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Meerut Bus Stand)">
-            <button onclick="listRide()" class="list-btn">राइड लिस्ट करें</button>
-            <button onclick="searchRide()" class="search-btn">राइड खोजें</button>
+            <button id="listRideBtn" class="list-btn">राइड लिस्ट करें</button>
+            <button id="searchRideBtn" class="search-btn">राइड खोजें</button>
         </div>
 
         <div id="map"></div>
@@ -233,7 +233,7 @@
         <div id="fare-details" class="fare-details"></div>
         <div class="custom-fare">
             <input type="number" id="custom-fare" placeholder="अपना किराया सेट करें (₹)">
-            <button onclick="publishRide()">राइड प्रकाशित करें</button>
+            <button id="publishRideBtn">राइड प्रकाशित करें</button>
         </div>
         <div id="ride-list" class="card-container"></div>
 
@@ -286,7 +286,7 @@
                         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
                     );
                     data = await response.json();
-                    if (!data || !Array.isArray(data) {
+                    if (!data || !Array.isArray(data)) {
                         throw new Error(`स्थान नहीं मिला: ${location}`);
                     }
                 }
@@ -418,7 +418,7 @@
                 const data = await response.json();
                 
                 // डेटा सत्यापन
-                if (!data.routes || !Array.isArray(data.routes) {
+                if (!data.routes || !Array.isArray(data.routes)) {
                     throw new Error('अमान्य रूट डेटा');
                 }
 
@@ -668,14 +668,24 @@
         }
 
         // आपातकाल रिपोर्ट
-        document.getElementById('reportBtn').addEventListener('click', () => {
+        function reportEmergency() {
             const issue = prompt('आपातकाल का विवरण दें:');
             if (issue) alert('आपातकाल एडमिन को रिपोर्ट किया गया!');
-        });
+        }
 
-        // पेज लोड पर मानचित्र प्रारंभ करें
-        document.addEventListener('DOMContentLoaded', function() {
+        // एप्लिकेशन इनिशियलाइज़ेशन
+        function initApp() {
+            // बटन इवेंट लिस्नर्स
+            document.getElementById('listRideBtn').addEventListener('click', listRide);
+            document.getElementById('searchRideBtn').addEventListener('click', searchRide);
+            document.getElementById('publishRideBtn').addEventListener('click', publishRide);
+            document.getElementById('reportBtn').addEventListener('click', reportEmergency);
+        }
+
+        // DOM कंटेंट लोड होने के बाद इनिशियलाइज़ करें
+        document.addEventListener('DOMContentLoaded', () => {
             initMap();
+            initApp();
         });
     </script>
 </body>
