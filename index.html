@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>भारत भ्रमण/दर्शन योजना</title>
-    <!-- Add favicon link to prevent 404 error -->
     <link rel="icon" href="data:,">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -206,6 +205,20 @@
             text-align: center;
         }
 
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         @keyframes slideIn {
             from { transform: translateY(-50px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
@@ -227,8 +240,14 @@
         <div class="search-box">
             <input type="text" id="start" placeholder="🚩 प्रारंभ बस स्टैंड (जैसे: Ghaziabad Bus Stand)">
             <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Meerut Bus Stand)">
-            <button id="listRideBtn" class="list-btn">राइड लिस्ट करें</button>
-            <button id="searchRideBtn" class="search-btn">राइड खोजें</button>
+            <button id="listRideBtn" class="list-btn">
+                <span id="listRideText">राइड लिस्ट करें</span>
+                <span id="listRideLoader" class="loading" style="display:none;"></span>
+            </button>
+            <button id="searchRideBtn" class="search-btn">
+                <span id="searchRideText">राइड खोजें</span>
+                <span id="searchRideLoader" class="loading" style="display:none;"></span>
+            </button>
         </div>
 
         <div id="map"></div>
@@ -236,7 +255,10 @@
         <div id="fare-details" class="fare-details"></div>
         <div class="custom-fare">
             <input type="number" id="custom-fare" placeholder="अपना किराया सेट करें (₹)">
-            <button id="publishRideBtn">राइड प्रकाशित करें</button>
+            <button id="publishRideBtn">
+                <span id="publishRideText">राइड प्रकाशित करें</span>
+                <span id="publishRideLoader" class="loading" style="display:none;"></span>
+            </button>
         </div>
         <div id="ride-list" class="card-container"></div>
 
@@ -253,6 +275,7 @@
         let currentCalculation = {};
         const RATE_PER_KM = 3; // ₹3/km
         const AVG_SPEED_KMH = 60; // औसत गति 60 किमी/घंटा
+        const OSRM_TIMEOUT = 10000; // 10 seconds timeout for OSRM API
 
         // मानचित्र प्रारंभ करें
         function initMap() {
@@ -275,29 +298,60 @@
             return `${hrs} घंटे ${mins} मिनट`;
         }
 
-        // जियोकोडिंग फंक्शन
+        // जियोकोडिंग फंक्शन (कैशिंग के साथ)
+        const geocodeCache = {};
         async function geocode(location) {
             try {
+                // Check cache first
+                if (geocodeCache[location]) {
+                    return geocodeCache[location];
+                }
+
                 let query = location.toLowerCase().includes('bus stand') ? location : `${location} Bus Stand`;
-                let response = await fetch(
-                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`,
+                    {
+                        headers: {
+                            'User-Agent': 'IndiaTravelPlanner/1.0'
+                        }
+                    }
                 );
-                let data = await response.json();
+                
+                if (!response.ok) throw new Error('Geocoding failed');
+                
+                const data = await response.json();
+                
                 if (!data || !Array.isArray(data) || data.length === 0) {
                     query = location;
-                    response = await fetch(
-                        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
+                    const fallbackResponse = await fetch(
+                        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`,
+                        {
+                            headers: {
+                                'User-Agent': 'IndiaTravelPlanner/1.0'
+                            }
+                        }
                     );
-                    data = await response.json();
-                    if (!data || !Array.isArray(data)) {
+                    if (!fallbackResponse.ok) throw new Error('Geocoding failed');
+                    const fallbackData = await fallbackResponse.json();
+                    if (!fallbackData || !Array.isArray(fallbackData) || fallbackData.length === 0) {
                         throw new Error(`स्थान नहीं मिला: ${location}`);
                     }
+                    const result = { 
+                        lat: parseFloat(fallbackData[0].lat), 
+                        lon: parseFloat(fallbackData[0].lon), 
+                        name: fallbackData[0].display_name.split(',')[0] 
+                    };
+                    geocodeCache[location] = result; // Cache the result
+                    return result;
                 }
-                return { 
+
+                const result = { 
                     lat: parseFloat(data[0].lat), 
                     lon: parseFloat(data[0].lon), 
                     name: data[0].display_name.split(',')[0] 
                 };
+                geocodeCache[location] = result; // Cache the result
+                return result;
             } catch (error) {
                 console.error('जियोकोडिंग त्रुटि:', error);
                 return null;
@@ -307,26 +361,27 @@
         // मानचित्र पर मार्ग अपडेट करें
         function updateMapRoute(coordinates, start, end) {
             try {
-                // पुराने लेयर्स हटाएं
+                // Clear previous layers
                 if (routeLayer && map) {
                     map.removeLayer(routeLayer);
+                    routeLayer = null;
                 }
                 
-                // नया रूट जोड़ें
+                // Clear all markers
+                map.eachLayer(layer => {
+                    if (layer instanceof L.Marker) {
+                        map.removeLayer(layer);
+                    }
+                });
+
+                // Add new route
                 routeLayer = L.polyline(coordinates, {
                     color: '#2563eb',
                     weight: 4,
                     opacity: 0.7
                 }).addTo(map);
 
-                // सभी पुराने मार्कर्स हटाएं
-                map.eachLayer(function(layer) {
-                    if (layer instanceof L.Marker) {
-                        map.removeLayer(layer);
-                    }
-                });
-
-                // नए मार्कर्स जोड़ें
+                // Add markers
                 L.marker([start.lat, start.lon])
                     .bindPopup(`प्रारंभ: ${start.name}`)
                     .addTo(map);
@@ -335,7 +390,7 @@
                     .bindPopup(`गंतव्य: ${end.name}`)
                     .addTo(map);
 
-                // मानचित्र का दृश्य सेट करें
+                // Fit bounds
                 map.fitBounds(routeLayer.getBounds());
 
             } catch (mapError) {
@@ -355,17 +410,38 @@
             }
 
             try {
-                const startCoords = await geocode(startInput);
-                const endCoords = await geocode(endInput);
+                // Show loading state
+                toggleLoading(true);
+
+                // Get coordinates with timeout
+                const startCoords = await Promise.race([
+                    geocode(startInput),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Geocoding timeout')), 5000)
+                    )
+                ]);
+                
+                const endCoords = await Promise.race([
+                    geocode(endInput),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Geocoding timeout')), 5000)
+                    )
+                ]);
                 
                 if (!startCoords || !endCoords) {
                     throw new Error('स्थान निर्देशांक प्राप्त नहीं हुए');
                 }
 
-                // OSRM API कॉल
+                // OSRM API कॉल with timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), OSRM_TIMEOUT);
+                
                 const response = await fetch(
-                    `https://router.project-osrm.org/route/v1/driving/${startCoords.lon},${startCoords.lat};${endCoords.lon},${endCoords.lat}?overview=full`
+                    `https://router.project-osrm.org/route/v1/driving/${startCoords.lon},${startCoords.lat};${endCoords.lon},${endCoords.lat}?overview=full`,
+                    { signal: controller.signal }
                 );
+                
+                clearTimeout(timeoutId);
                 
                 if (!response.ok) {
                     throw new Error('नेटवर्क त्रुटि');
@@ -373,9 +449,9 @@
 
                 const data = await response.json();
                 
-                // डेटा सत्यापन
+                // Validate response
                 if (!data.routes || !Array.isArray(data.routes) || data.routes.length === 0) {
-                    throw new Error('अमान्य रूट डेटा');
+                    throw new Error('OSRM से अमान्य प्रतिक्रिया');
                 }
 
                 const route = data.routes[0];
@@ -383,48 +459,59 @@
                     throw new Error('रूट ज्यामिति उपलब्ध नहीं');
                 }
 
-                // निर्देशांक प्रसंस्करण
+                // Process coordinates
                 const coordinates = route.geometry.coordinates.map(c => {
                     if (!Array.isArray(c) || c.length < 2) {
                         throw new Error('अमान्य निर्देशांक प्रारूप');
                     }
-                    return [c[1], c[0]]; // [lat, lon] में कनवर्ट करें
+                    return [c[1], c[0]]; // Convert to [lat, lon]
                 });
 
-                // मानचित्र अपडेट
+                // Update map
                 updateMapRoute(coordinates, startCoords, endCoords);
 
-                // दूरी गणना
+                // Calculate fare and time
                 const roadDistance = route.distance / 1000;
                 const naturalFare = Math.round(roadDistance * RATE_PER_KM);
                 const time = roadDistance / AVG_SPEED_KMH;
 
-                // परिणाम प्रदर्शित करें
-                const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `
+                // Show results
+                document.getElementById('fare-estimate').innerHTML = `
                     <div>अनुमानित किराया: ₹${naturalFare}</div>
                     <div>दूरी: ${roadDistance.toFixed(2)} किमी</div>
                     <div>समय: ${formatTime(time)}</div>
                     <div>रास्ते के शहर: ${startCoords.name} से ${endCoords.name}</div>
                 `;
 
-                currentCalculation = {
+                return {
                     distance: roadDistance,
                     naturalFare,
                     time,
                     cities: [startCoords.name, endCoords.name]
                 };
 
-                return currentCalculation;
-
             } catch (error) {
                 console.error('त्रुटि:', error);
-                const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `
+                document.getElementById('fare-estimate').innerHTML = `
                     <div class="error-warning">त्रुटि: ${error.message || 'रूट गणना विफल! कृपया स्थानों को पुनः जांचें'}</div>
                 `;
                 return { distance: 0, naturalFare: 0, time: 0, cities: [] };
+            } finally {
+                toggleLoading(false);
             }
+        }
+
+        // Loading state management
+        function toggleLoading(isLoading) {
+            const buttons = ['listRide', 'searchRide', 'publishRide'];
+            buttons.forEach(btn => {
+                const textElem = document.getElementById(`${btn}Text`);
+                const loaderElem = document.getElementById(`${btn}Loader`);
+                if (textElem && loaderElem) {
+                    textElem.style.display = isLoading ? 'none' : 'inline';
+                    loaderElem.style.display = isLoading ? 'inline-block' : 'none';
+                }
+            });
         }
 
         // राइड लिस्ट करें
@@ -477,9 +564,8 @@
                 const percentageDiff = Math.round(((customFare - naturalFare) / naturalFare) * 100);
                 const actualFare = Math.round(naturalFare + (naturalFare * (percentageDiff/100)));
 
-                // परिणाम दिखाएं
-                const fareDetails = document.getElementById('fare-details');
-                fareDetails.innerHTML = `
+                // Show fare details
+                document.getElementById('fare-details').innerHTML = `
                     <h3>किराया विवरण</h3>
                     <p>प्राकृतिक किराया (₹${RATE_PER_KM}/किमी): ₹${naturalFare}</p>
                     <p>आपका प्रस्तावित किराया: ₹${customFare} (${percentageDiff >= 0 ? '+' : ''}${percentageDiff}%)</p>
