@@ -227,7 +227,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         let map = null; // Explicitly initialize as null
-        let routeLayer;
+        let routeLayer = null;
         let rides = [];
         let rideHistory = [];
         const RATE_PER_KM = 3; // ₹3/km
@@ -239,6 +239,10 @@
                 if (!document.getElementById('map')) {
                     throw new Error('मानचित्र का DOM तत्व नहीं मिला');
                 }
+                if (map) {
+                    console.log('मानचित्र पहले से मौजूद है, पुनर्जनन नहीं कर रहा');
+                    return;
+                }
                 map = L.map('map').setView([20.5937, 78.9629], 5);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -247,6 +251,7 @@
                 console.log('मानचित्र सफलतापूर्वक लोड हुआ!');
             } catch (error) {
                 console.error('मानचित्र लोड करने में त्रुटि:', error);
+                map = null; // Reset to null on failure
                 alert('मानचित्र लोड करने में विफल! कृपया पेज रिफ्रेश करें।');
             }
         }
@@ -279,10 +284,10 @@
             }
 
             if (!map) {
-                console.error('मानचित्र उपलब्ध नहीं है, पुनः प्रारंभ कर रहा हूँ...');
+                console.log('मानचित्र उपलब्ध नहीं है, पुनः प्रारंभ कर रहा हूँ...');
                 initMap();
                 if (!map) {
-                    alert('मानचित्र प्रारंभ करने में विफल, कृपया पेज रिफ्रेश करें।');
+                    console.error('मानचित्र पुनर्जनन विफल');
                     return { distance: 0, naturalFare: 0, time: 0, cities: [] };
                 }
             }
@@ -305,6 +310,7 @@
 
                 if (routeLayer && map) {
                     map.removeLayer(routeLayer);
+                    routeLayer = null;
                 }
 
                 console.log('OSRM API कॉल कर रहा हूँ...');
@@ -323,7 +329,6 @@
                 const time = distance / AVG_SPEED_KMH; // घंटों में
                 console.log(`दूरी: ${distance} किमी, प्राकृतिक किराया: ₹${naturalFare}, समय: ${time.toFixed(2)} घंटे`);
 
-                // प्रमुख शहरों को चिह्नित करें
                 const cities = [];
                 const step = Math.floor(coordinates.length / 5);
                 for (let i = 0; i < coordinates.length; i += step) {
@@ -359,7 +364,10 @@
                 fareEstimate.innerHTML = `अनुमानित किराया (फॉलबैक): ₹${naturalFare} (${distance.toFixed(2)} किमी, ~${time.toFixed(1)} घंटे)<br>रास्ते के शहर: ${cities.join(', ')}`;
                 console.log('फॉलबैक किराया DOM में सेट किया गया:', fareEstimate.innerHTML);
 
-                if (routeLayer && map) map.removeLayer(routeLayer);
+                if (routeLayer && map) {
+                    map.removeLayer(routeLayer);
+                    routeLayer = null;
+                }
                 routeLayer = L.polyline([[startCoords.lat, startCoords.lon], [endCoords.lat, endCoords.lon]], 
                     { color: '#2563eb', weight: 4 }).addTo(map);
                 map.fitBounds(routeLayer.getBounds());
@@ -442,6 +450,7 @@
             const distance = result.distance;
             const percentageDiff = naturalFare > 0 ? 
                 Math.round(((customFare - naturalFare) / naturalFare) * 100) : 0;
+            const netFare = Math.round(naturalFare * (1 + percentageDiff / 100)); // Adjusted fare
 
             const ride = { 
                 start, 
@@ -449,6 +458,7 @@
                 customFare, 
                 naturalFare, 
                 percentageDiff, 
+                netFare,
                 distance,
                 timestamp: new Date().toLocaleString('hi-IN') 
             };
@@ -465,7 +475,7 @@
             rideList.innerHTML = ridesToShow.length ? 
                 ridesToShow.map(ride => {
                     const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)</p>`;
+                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, शुद्ध: ₹${ride.netFare})</p>`;
                 }).join('') : 
                 '<p>कोई राइड उपलब्ध नहीं</p>';
         }
@@ -475,7 +485,7 @@
             historyList.innerHTML = history.length ? 
                 history.map(ride => {
                     const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%) @ ${ride.timestamp}</p>`;
+                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, शुद्ध: ₹${ride.netFare}) @ ${ride.timestamp}</p>`;
                 }).join('') : 
                 '<p>कोई राइड इतिहास नहीं</p>';
         }
@@ -485,7 +495,10 @@
             document.getElementById('end').value = '';
             document.getElementById('custom-fare').value = '';
             document.getElementById('fare-estimate').innerHTML = '';
-            if (routeLayer && map) map.removeLayer(routeLayer);
+            if (routeLayer && map) {
+                map.removeLayer(routeLayer);
+                routeLayer = null;
+            }
             if (map) {
                 map.eachLayer(layer => {
                     if (layer instanceof L.Marker) map.removeLayer(layer);
@@ -500,10 +513,8 @@
         });
 
         // पेज लोड पर मानचित्र प्रारंभ करें
-        window.onload = () => {
-            console.log('पेज लोड हो रहा है...');
-            initMap();
-        };
+        console.log('पेज लोड हो रहा है...');
+        initMap();
     </script>
 </body>
 </html>
