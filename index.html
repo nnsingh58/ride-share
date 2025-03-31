@@ -206,8 +206,8 @@
         </div>
 
         <div class="search-box">
-            <input type="text" id="start" placeholder="🚩 प्रारंभ बस स्टैंड (जैसे: Delhi Bus Stand)">
-            <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Bhopal Bus Stand)">
+            <input type="text" id="start" placeholder="🚩 प्रारंभ बस स्टैंड (जैसे: Ghaziabad Bus Stand)">
+            <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Lucknow Bus Stand)">
             <button onclick="listRide()" class="list-btn">राइड लिस्ट करें</button>
             <button onclick="searchRide()" class="search-btn">राइड खोजें</button>
         </div>
@@ -260,17 +260,27 @@
         // जियोकोडिंग फंक्शन
         async function geocode(location) {
             try {
-                const query = location.toLowerCase().includes('bus stand') ? location : `${location} Bus Stand`;
-                const response = await fetch(
+                let query = location.toLowerCase().includes('bus stand') ? location : `${location} Bus Stand`;
+                let response = await fetch(
                     `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
                 );
-                const data = await response.json();
-                if (!data.length) throw new Error('बस स्टैंड नहीं मिला: ' + location);
+                let data = await response.json();
+                if (!data.length) {
+                    console.log(`बस स्टैंड नहीं मिला, शहर के लिए पुनः प्रयास: ${location}`);
+                    query = location;
+                    response = await fetch(
+                        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
+                    );
+                    data = await response.json();
+                    if (!data.length) {
+                        throw new Error(`स्थान नहीं मिला: ${location}`);
+                    }
+                }
                 console.log(`जियोकोडिंग सफल: ${location} -> ${data[0].lat}, ${data[0].lon}`);
                 return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), name: data[0].display_name.split(',')[0] };
             } catch (error) {
                 console.error('जियोकोडिंग त्रुटि:', error);
-                throw error;
+                return null; // Return null instead of throwing to handle gracefully
             }
         }
 
@@ -290,16 +300,21 @@
                 initMap();
                 if (!map) {
                     console.error('मानचित्र पुनर्जनन विफल');
-                    return { distance: 0, naturalFare: 0, time: 0, cities: [] };
+                    return { distance: 0, naturalFare: 0, time: 0,cities: [] };
                 }
             }
 
             console.log('किराया और रूट गणना शुरू हो रही है...');
-            let startCoords, endCoords;
-            try {
-                startCoords = await geocode(startInput);
-                endCoords = await geocode(endInput);
+            const startCoords = await geocode(startInput);
+            const endCoords = await geocode(endInput);
 
+            if (!startCoords || !endCoords) {
+                console.log('प्रारंभ या गंतव्य स्थान के निर्देशांक प्राप्त करने में विफल');
+                alert('एक या दोनों स्थान नहीं मिले। कृपया मान्य स्थान दर्ज करें।');
+                return { distance: 0, naturalFare: 0, time: 0, cities: [] };
+            }
+
+            try {
                 if (routeLayer && map) {
                     map.removeLayer(routeLayer);
                     routeLayer = null;
@@ -438,12 +453,14 @@
             }
 
             const result = await calculateAndSetFare();
+            if (result.distance === 0) return;
+
             const naturalFare = result.naturalFare;
             const distance = result.distance;
             const percentageDiff = naturalFare > 0 ? 
                 Math.round(((customFare - naturalFare) / naturalFare) * 100) : 0;
             const actualFare = percentageDiff < 0 ? 
-                Math.round(naturalFare * (1 + percentageDiff / 100)) : naturalFare; // Only apply discount if negative
+                Math.round(naturalFare * (1 + percentageDiff / 100)) : naturalFare;
 
             const ride = { 
                 start, 
