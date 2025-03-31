@@ -163,36 +163,45 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map = null;
+        // मैप को एक प्रोटेक्टेड ऑब्जेक्ट में लपेटें
+        const mapManager = {
+            instance: null,
+            init() {
+                try {
+                    const mapElement = document.getElementById('map');
+                    if (!mapElement) {
+                        throw new Error('मानचित्र का DOM तत्व नहीं मिला');
+                    }
+                    if (this.instance && typeof this.instance.remove === 'function') {
+                        console.log('पिछला मैप हटा रहा हूँ...');
+                        this.instance.remove();
+                    }
+                    this.instance = L.map(mapElement).setView([20.5937, 78.9629], 5);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                        maxZoom: 18,
+                    }).addTo(this.instance);
+                    console.log('मानचित्र सफलतापूर्वक लोड हुआ!');
+                } catch (error) {
+                    console.error('मानचित्र लोड करने में त्रुटि:', error);
+                    this.instance = null;
+                    alert('मानचित्र लोड करने में विफल! कृपया पेज रिफ्रेश करें।');
+                }
+            },
+            getMap() {
+                if (!this.instance || typeof this.instance.removeLayer !== 'function' || typeof this.instance.fitBounds !== 'function') {
+                    console.log('मैप अमान्य है, पुनः प्रारंभ कर रहा हूँ...');
+                    this.init();
+                }
+                return this.instance;
+            }
+        };
+
         let routeLayer = null;
         let rides = [];
         let rideHistory = [];
         const RATE_PER_KM = 3;
         const AVG_SPEED_KMH = 60;
-
-        // मानचित्र प्रारंभ करें
-        function initMap() {
-            try {
-                const mapElement = document.getElementById('map');
-                if (!mapElement) {
-                    throw new Error('मानचित्र का DOM तत्व नहीं मिला');
-                }
-                // अगर मैप पहले से मौजूद है, तो उसे हटाएँ
-                if (map && typeof map.remove === 'function') {
-                    map.remove();
-                }
-                map = L.map(mapElement).setView([20.5937, 78.9629], 5);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-                    maxZoom: 18,
-                }).addTo(map);
-                console.log('मानचित्र सफलतापूर्वक लोड हुआ!');
-            } catch (error) {
-                console.error('मानचित्र लोड करने में त्रुटि:', error);
-                map = null;
-                alert('मानचित्र लोड करने में विफल! कृपया पेज रिफ्रेश करें।');
-            }
-        }
 
         function formatTime(hours) {
             const hrs = Math.floor(hours);
@@ -236,14 +245,9 @@
                 return { distance: 0, naturalFare: 0, time: 0, cities: [] };
             }
 
-            // मैप की जाँच करें और अगर जरूरी हो तो फिर से बनाएँ
-            if (!map || typeof map.removeLayer !== 'function' || typeof map.fitBounds !== 'function') {
-                console.log('मानचित्र उपलब्ध नहीं है या अमान्य है, पुनः प्रारंभ कर रहा हूँ...');
-                initMap();
-            }
-            if (!map || typeof map.removeLayer !== 'function') {
-                console.error('मानचित्र पुनर्जनन विफल, फॉलबैक पर जा रहा हूँ');
-                alert('मानचित्र लोड करने में विफल! कृपया पेज रिफ्रेश करें।');
+            const map = mapManager.getMap();
+            if (!map) {
+                console.error('मैप उपलब्ध नहीं है, ऑपरेशन रद्द कर रहा हूँ');
                 return { distance: 0, naturalFare: 0, time: 0, cities: [] };
             }
 
@@ -259,7 +263,7 @@
 
             try {
                 console.log('मानचित्र की स्थिति जांच: उपलब्ध');
-                if (routeLayer && map) {
+                if (routeLayer) {
                     console.log('पिछला रूट हटा रहा हूँ...');
                     map.removeLayer(routeLayer);
                     routeLayer = null;
@@ -274,7 +278,7 @@
                 if (data.code !== 'Ok') throw new Error('रूट नहीं मिला');
 
                 const coordinates = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-                if (!map) throw new Error('मैप उपलब्ध नहीं है');
+                if (!map) throw new Error('मैप अनुपलब्ध हो गया');
                 routeLayer = L.polyline(coordinates, { color: '#2563eb', weight: 4 }).addTo(map);
                 map.fitBounds(routeLayer.getBounds());
 
@@ -450,12 +454,13 @@
             document.getElementById('end').value = '';
             document.getElementById('custom-fare').value = '';
             document.getElementById('fare-estimate').innerHTML = '';
-            if (map && routeLayer && typeof map.removeLayer === 'function') {
+            const map = mapManager.getMap();
+            if (map && routeLayer) {
                 console.log('फॉर्म रीसेट: रूट हटा रहा हूँ...');
                 map.removeLayer(routeLayer);
                 routeLayer = null;
             }
-            if (map && typeof map.eachLayer === 'function') {
+            if (map) {
                 map.eachLayer(layer => {
                     if (layer instanceof L.Marker) map.removeLayer(layer);
                 });
@@ -468,7 +473,7 @@
         });
 
         console.log('पेज लोड हो रहा है...');
-        initMap(); // पेज लोड पर मैप शुरू करें
+        mapManager.init(); // पेज लोड पर मैप शुरू करें
     </script>
 </body>
 </html>
