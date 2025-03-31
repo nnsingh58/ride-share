@@ -7,7 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        /* [Previous CSS unchanged] */
         * {
             margin: 0;
             padding: 0;
@@ -207,7 +206,7 @@
 
         <div class="search-box">
             <input type="text" id="start" placeholder="🚩 प्रारंभ बस स्टैंड (जैसे: Ghaziabad Bus Stand)">
-            <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Aligarh Bus Stand)">
+            <input type="text" id="end" placeholder="🏁 गंतव्य बस स्टैंड (जैसे: Meerut Bus Stand)">
             <button onclick="listRide()" class="list-btn">राइड लिस्ट करें</button>
             <button onclick="searchRide()" class="search-btn">राइड खोजें</button>
         </div>
@@ -240,8 +239,8 @@
                 if (!mapElement) {
                     throw new Error('मानचित्र का DOM तत्व नहीं मिला');
                 }
-                if (map) {
-                    console.log('मानचित्र पहले से मौजूद है');
+                if (map && typeof map.removeLayer === 'function') {
+                    console.log('मानचित्र पहले से मौजूद और वैध है');
                     return;
                 }
                 map = L.map(mapElement).setView([20.5937, 78.9629], 5);
@@ -255,6 +254,13 @@
                 map = null;
                 alert('मानचित्र लोड करने में विफल! कृपया पेज रिफ्रेश करें।');
             }
+        }
+
+        // समय को घंटे और मिनट में बदलें
+        function formatTime(hours) {
+            const hrs = Math.floor(hours);
+            const mins = Math.round((hours - hrs) * 60);
+            return `${hrs} घंटे ${mins} मिनट`;
         }
 
         // जियोकोडिंग फंक्शन
@@ -297,9 +303,9 @@
 
             if (!map || typeof map.removeLayer !== 'function') {
                 console.log('मानचित्र उपलब्ध नहीं है या अमान्य है, पुनः प्रारंभ कर रहा हूँ...');
-                map = null; // Explicitly clear invalid map
+                map = null;
                 initMap();
-                if (!map) {
+                if (!map || typeof map.removeLayer !== 'function') {
                     console.error('मानचित्र पुनर्जनन विफल');
                     return { distance: 0, naturalFare: 0, time: 0, cities: [] };
                 }
@@ -330,13 +336,18 @@
                 const data = await response.json();
                 if (data.code !== 'Ok') throw new Error('रूट नहीं मिला');
 
+                // Check if route data is valid
+                if (!data.routes?.[0]?.geometry?.coordinates) {
+                    throw new Error('Invalid route data received');
+                }
+
                 const coordinates = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
                 routeLayer = L.polyline(coordinates, { color: '#2563eb', weight: 4 }).addTo(map);
                 map.fitBounds(routeLayer.getBounds());
 
-                const distance = data.routes[0].distance / 1000; // किमी में
+                const distance = data.routes[0].distance / 1000;
                 const naturalFare = Math.round(distance * RATE_PER_KM);
-                const time = distance / AVG_SPEED_KMH; // घंटों में
+                const time = distance / AVG_SPEED_KMH;
                 console.log(`दूरी: ${distance} किमी, प्राकृतिक किराया: ₹${naturalFare}, समय: ${time.toFixed(2)} घंटे`);
 
                 const cities = [];
@@ -357,7 +368,7 @@
                 }
 
                 const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `अनुमानित किराया: ₹${naturalFare} (${distance.toFixed(2)} किमी, ~${time.toFixed(1)} घंटे)<br>रास्ते के शहर: ${cities.join(', ')}`;
+                fareEstimate.innerHTML = `अनुमानित किराया: ₹${naturalFare} | दूरी: ${distance.toFixed(2)} किमी | समय: ${formatTime(time)}<br>रास्ते के शहर: ${cities.join(', ')}`;
                 console.log('अनुमानित किराया और शहर DOM में सेट किए गए:', fareEstimate.innerHTML);
 
                 return { distance, naturalFare, time, cities };
@@ -371,7 +382,7 @@
                 const cities = [startCoords.name, endCoords.name];
 
                 const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `अनुमानित किराया (फॉलबैक): ₹${naturalFare} (${distance.toFixed(2)} किमी, ~${time.toFixed(1)} घंटे)<br>रास्ते के शहर: ${cities.join(', ')}`;
+                fareEstimate.innerHTML = `अनुमानित किराया (फॉलबैक): ₹${naturalFare} | दूरी: ${distance.toFixed(2)} किमी | समय: ${formatTime(time)}<br>रास्ते के शहर: ${cities.join(', ')}`;
                 console.log('फॉलबैक किराया DOM में सेट किया गया:', fareEstimate.innerHTML);
 
                 if (routeLayer && map) {
@@ -489,7 +500,7 @@
             rideList.innerHTML = ridesToShow.length ? 
                 ridesToShow.map(ride => {
                     const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, वास्तविक: ₹${ride.actualFare})</p>`;
+                    return `<p>${ride.start} से ${ride.end} - किराया: ₹${ride.customFare} (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, वास्तविक: ₹${ride.actualFare})</p>`;
                 }).join('') : 
                 '<p>कोई राइड उपलब्ध नहीं</p>';
         }
@@ -499,7 +510,7 @@
             historyList.innerHTML = history.length ? 
                 history.map(ride => {
                     const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `<p>${ride.start} से ${ride.end} - ₹${ride.customFare} (Offer, प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, वास्तविक: ₹${ride.actualFare}) @ ${ride.timestamp}</p>`;
+                    return `<p>${ride.start} से ${ride.end} - किराया: ₹${ride.customFare} (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%, वास्तविक: ₹${ride.actualFare}) @ ${ride.timestamp}</p>`;
                 }).join('') : 
                 '<p>कोई राइड इतिहास नहीं</p>';
         }
@@ -509,12 +520,12 @@
             document.getElementById('end').value = '';
             document.getElementById('custom-fare').value = '';
             document.getElementById('fare-estimate').innerHTML = '';
-            if (routeLayer && map) {
+            if (routeLayer && map && typeof map.removeLayer === 'function') {
                 console.log('फॉर्म रीसेट: रूट हटा रहा हूँ...');
                 map.removeLayer(routeLayer);
                 routeLayer = null;
             }
-            if (map) {
+            if (map && typeof map.eachLayer === 'function') {
                 map.eachLayer(layer => {
                     if (layer instanceof L.Marker) map.removeLayer(layer);
                 });
