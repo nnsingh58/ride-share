@@ -280,13 +280,13 @@
                     `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
                 );
                 let data = await response.json();
-                if (!data.length) {
+                if (!data || !Array.isArray(data) || data.length === 0) {
                     query = location;
                     response = await fetch(
                         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
                     );
                     data = await response.json();
-                    if (!data.length) {
+                    if (!data || !Array.isArray(data) {
                         throw new Error(`स्थान नहीं मिला: ${location}`);
                     }
                 }
@@ -303,43 +303,77 @@
 
         // मानचित्र पर मार्ग अपडेट करें
         function updateMapRoute(coordinates, start, end) {
-            if (routeLayer) map.removeLayer(routeLayer);
-            
-            routeLayer = L.polyline(coordinates, {
-                color: '#2563eb',
-                weight: 4,
-                opacity: 0.7
-            }).addTo(map);
-            
-            L.marker([start.lat, start.lon])
-                .bindPopup(`प्रारंभ: ${start.name}`)
-                .addTo(map);
-            
-            L.marker([end.lat, end.lon])
-                .bindPopup(`गंतव्य: ${end.name}`)
-                .addTo(map);
-            
-            map.fitBounds(routeLayer.getBounds());
+            try {
+                // पुराने लेयर्स हटाएं
+                if (routeLayer && map) {
+                    map.removeLayer(routeLayer);
+                }
+                
+                // नया रूट जोड़ें
+                routeLayer = L.polyline(coordinates, {
+                    color: '#2563eb',
+                    weight: 4,
+                    opacity: 0.7
+                }).addTo(map);
+
+                // सभी पुराने मार्कर्स हटाएं
+                map.eachLayer(function(layer) {
+                    if (layer instanceof L.Marker) {
+                        map.removeLayer(layer);
+                    }
+                });
+
+                // नए मार्कर्स जोड़ें
+                L.marker([start.lat, start.lon])
+                    .bindPopup(`प्रारंभ: ${start.name}`)
+                    .addTo(map);
+                
+                L.marker([end.lat, end.lon])
+                    .bindPopup(`गंतव्य: ${end.name}`)
+                    .addTo(map);
+
+                // मानचित्र का दृश्य सेट करें
+                map.fitBounds(routeLayer.getBounds());
+
+            } catch (mapError) {
+                console.error('मानचित्र अपडेट त्रुटि:', mapError);
+                alert('मानचित्र प्रदर्शन में समस्या!');
+            }
         }
 
         // फॉलबैक मार्ग प्रदर्शित करें
         function showFallbackRoute(start, end) {
-            if (routeLayer) map.removeLayer(routeLayer);
-            
-            routeLayer = L.polyline(
-                [[start.lat, start.lon], [end.lat, end.lon]], 
-                { color: '#ff0000', dashArray: '5,5', weight: 3 }
-            ).addTo(map);
-            
-            L.marker([start.lat, start.lon])
-                .bindPopup(`प्रारंभ: ${start.name}`)
-                .addTo(map);
-            
-            L.marker([end.lat, end.lon])
-                .bindPopup(`गंतव्य: ${end.name}`)
-                .addTo(map);
-            
-            map.fitBounds([[start.lat, start.lon], [end.lat, end.lon]]);
+            try {
+                if (routeLayer && map) {
+                    map.removeLayer(routeLayer);
+                }
+                
+                routeLayer = L.polyline(
+                    [[start.lat, start.lon], [end.lat, end.lon]], 
+                    { color: '#ff0000', dashArray: '5,5', weight: 3 }
+                ).addTo(map);
+                
+                // सभी पुराने मार्कर्स हटाएं
+                map.eachLayer(function(layer) {
+                    if (layer instanceof L.Marker) {
+                        map.removeLayer(layer);
+                    }
+                });
+
+                // नए मार्कर्स जोड़ें
+                L.marker([start.lat, start.lon])
+                    .bindPopup(`प्रारंभ: ${start.name}`)
+                    .addTo(map);
+                
+                L.marker([end.lat, end.lon])
+                    .bindPopup(`गंतव्य: ${end.name}`)
+                    .addTo(map);
+                
+                map.fitBounds([[start.lat, start.lon], [end.lat, end.lon]]);
+
+            } catch (error) {
+                console.error('फॉलबैक मार्ग त्रुटि:', error);
+            }
         }
 
         // Haversine फॉर्मूला
@@ -369,27 +403,50 @@
                 const endCoords = await geocode(endInput);
                 
                 if (!startCoords || !endCoords) {
-                    throw new Error('स्थान नहीं मिले');
+                    throw new Error('स्थान निर्देशांक प्राप्त नहीं हुए');
                 }
 
-                // OSRM API से वास्तविक सड़क दूरी प्राप्त करें
+                // OSRM API कॉल
                 const response = await fetch(
                     `https://router.project-osrm.org/route/v1/driving/${startCoords.lon},${startCoords.lat};${endCoords.lon},${endCoords.lat}?overview=full`
                 );
-                const data = await response.json();
                 
-                if (data.code !== 'Ok' || !data.routes?.[0]) {
-                    throw new Error('सड़क मार्ग डेटा उपलब्ध नहीं');
+                if (!response.ok) {
+                    throw new Error('नेटवर्क त्रुटि');
                 }
 
+                const data = await response.json();
+                
+                // डेटा सत्यापन
+                if (!data.routes || !Array.isArray(data.routes) {
+                    throw new Error('अमान्य रूट डेटा');
+                }
+
+                if (!data.routes[0] || !data.routes[0].geometry || !data.routes[0].geometry.coordinates) {
+                    throw new Error('रूट ज्यामिति उपलब्ध नहीं');
+                }
+
+                // निर्देशांक प्रसंस्करण
+                const coordinates = data.routes[0].geometry.coordinates.map(c => {
+                    if (!Array.isArray(c) || c.length < 2) {
+                        throw new Error('अमान्य निर्देशांक प्रारूप');
+                    }
+                    return [c[1], c[0]]; // [lat, lon] में कनवर्ट करें
+                });
+
+                if (coordinates.length === 0) {
+                    throw new Error('रूट निर्देशांक उपलब्ध नहीं');
+                }
+
+                // मानचित्र अपडेट
+                updateMapRoute(coordinates, startCoords, endCoords);
+
+                // दूरी गणना
                 const roadDistance = data.routes[0].distance / 1000;
                 const naturalFare = Math.round(roadDistance * RATE_PER_KM);
                 const time = roadDistance / AVG_SPEED_KMH;
 
-                // मानचित्र पर वास्तविक मार्ग दिखाएं
-                const coordinates = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-                updateMapRoute(coordinates, startCoords, endCoords);
-
+                // परिणाम प्रदर्शित करें
                 const fareEstimate = document.getElementById('fare-estimate');
                 fareEstimate.innerHTML = `
                     <div>अनुमानित किराया: ₹${naturalFare}</div>
@@ -410,160 +467,204 @@
 
             } catch (error) {
                 console.error('त्रुटि:', error);
-                // फॉलबैक: हवाई दूरी का उपयोग करें
-                const startCoords = await geocode(startInput);
-                const endCoords = await geocode(endInput);
-                
-                if (!startCoords || !endCoords) {
-                    alert('स्थान नहीं मिले, कृपया पुनः प्रयास करें');
+                // फॉलबैक प्रक्रिया
+                try {
+                    const startCoords = await geocode(startInput);
+                    const endCoords = await geocode(endInput);
+                    
+                    if (!startCoords || !endCoords) {
+                        throw new Error('फॉलबैक के लिए स्थान निर्देशांक उपलब्ध नहीं');
+                    }
+
+                    const fallbackDistance = haversineDistance(
+                        startCoords.lat, startCoords.lon,
+                        endCoords.lat, endCoords.lon
+                    );
+                    const naturalFare = Math.round(fallbackDistance * RATE_PER_KM);
+                    const time = fallbackDistance / AVG_SPEED_KMH;
+                    
+                    // फॉलबैक मार्ग दिखाएं
+                    showFallbackRoute(startCoords, endCoords);
+
+                    // परिणाम प्रदर्शित करें
+                    const fareEstimate = document.getElementById('fare-estimate');
+                    fareEstimate.innerHTML = `
+                        <div class="fallback-warning">⚠️ सड़क मार्ग डेटा उपलब्ध नहीं, हवाई दूरी दिखाई जा रही है</div>
+                        <div>अनुमानित किराया: ₹${naturalFare}</div>
+                        <div>दूरी: ${fallbackDistance.toFixed(2)} किमी (हवाई मार्ग)</div>
+                        <div>समय: ${formatTime(time)}</div>
+                        <div>रास्ते के शहर: ${startCoords.name} से ${endCoords.name}</div>
+                    `;
+
+                    currentCalculation = {
+                        distance: fallbackDistance,
+                        naturalFare,
+                        time,
+                        cities: [startCoords.name, endCoords.name],
+                        isFallback: true
+                    };
+
+                    return currentCalculation;
+
+                } catch (fallbackError) {
+                    console.error('फॉलबैक त्रुटि:', fallbackError);
+                    alert('रूट गणना विफल! कृपया स्थानों को पुनः जांचें');
                     return { distance: 0, naturalFare: 0, time: 0, cities: [] };
                 }
-
-                const fallbackDistance = haversineDistance(
-                    startCoords.lat, startCoords.lon,
-                    endCoords.lat, endCoords.lon
-                );
-                const naturalFare = Math.round(fallbackDistance * RATE_PER_KM);
-                const time = fallbackDistance / AVG_SPEED_KMH;
-                
-                // फॉलबैक मार्ग दिखाएं
-                showFallbackRoute(startCoords, endCoords);
-
-                const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `
-                    <div class="fallback-warning">⚠️ सड़क मार्ग डेटा उपलब्ध नहीं, हवाई दूरी दिखाई जा रही है</div>
-                    <div>अनुमानित किराया: ₹${naturalFare}</div>
-                    <div>दूरी: ${fallbackDistance.toFixed(2)} किमी (हवाई मार्ग)</div>
-                    <div>समय: ${formatTime(time)}</div>
-                    <div>रास्ते के शहर: ${startCoords.name} से ${endCoords.name}</div>
-                `;
-
-                currentCalculation = {
-                    distance: fallbackDistance,
-                    naturalFare,
-                    time,
-                    cities: [startCoords.name, endCoords.name],
-                    isFallback: true
-                };
-
-                return currentCalculation;
             }
         }
 
         // राइड लिस्ट करें
         async function listRide() {
-            await calculateAndSetFare();
+            try {
+                await calculateAndSetFare();
+            } catch (error) {
+                console.error('राइड लिस्ट करने में त्रुटि:', error);
+            }
         }
 
         // राइड खोजें
         async function searchRide() {
-            const result = await calculateAndSetFare();
-            if (result.distance > 0) {
-                const start = document.getElementById('start').value.trim();
-                const end = document.getElementById('end').value.trim();
-                const filteredRides = rides.filter(ride => 
-                    ride.start === start && ride.end === end
-                );
-                displayRides(filteredRides);
+            try {
+                const result = await calculateAndSetFare();
+                if (result.distance > 0) {
+                    const start = document.getElementById('start').value.trim();
+                    const end = document.getElementById('end').value.trim();
+                    const filteredRides = rides.filter(ride => 
+                        ride.start === start && ride.end === end
+                    );
+                    displayRides(filteredRides);
+                }
+            } catch (error) {
+                console.error('राइड खोजने में त्रुटि:', error);
             }
         }
 
         // राइड प्रकाशित करें
         async function publishRide() {
-            const start = document.getElementById('start').value.trim();
-            const end = document.getElementById('end').value.trim();
-            const customFare = parseInt(document.getElementById('custom-fare').value.trim());
+            try {
+                const start = document.getElementById('start').value.trim();
+                const end = document.getElementById('end').value.trim();
+                const customFare = parseInt(document.getElementById('custom-fare').value.trim());
 
-            if (!start || !end) {
-                alert('कृपया प्रारंभ और गंतव्य बस स्टैंड भरें');
-                return;
+                if (!start || !end) {
+                    alert('कृपया प्रारंभ और गंतव्य बस स्टैंड भरें');
+                    return;
+                }
+
+                if (!customFare || customFare <= 0) {
+                    alert('कृपया अपना किराया सेट करें');
+                    return;
+                }
+
+                const result = await calculateAndSetFare();
+                if (result.distance === 0) return;
+
+                const naturalFare = result.naturalFare;
+                const percentageDiff = Math.round(((customFare - naturalFare) / naturalFare) * 100);
+                const actualFare = Math.round(naturalFare + (naturalFare * (percentageDiff/100)));
+
+                // परिणाम दिखाएं
+                const fareDetails = document.getElementById('fare-details');
+                fareDetails.innerHTML = `
+                    <h3>किराया विवरण</h3>
+                    <p>प्राकृतिक किराया (₹${RATE_PER_KM}/किमी): ₹${naturalFare}</p>
+                    <p>आपका प्रस्तावित किराया: ₹${customFare} (${percentageDiff >= 0 ? '+' : ''}${percentageDiff}%)</p>
+                    <p>अंतिम किराया: ₹${actualFare}</p>
+                    ${result.isFallback ? '<p class="fallback-warning">⚠️ नोट: यह हवाई दूरी पर आधारित है</p>' : ''}
+                `;
+
+                const ride = { 
+                    start, 
+                    end, 
+                    customFare, 
+                    naturalFare, 
+                    percentageDiff, 
+                    actualFare,
+                    distance: result.distance,
+                    isFallback: result.isFallback,
+                    timestamp: new Date().toLocaleString('hi-IN') 
+                };
+                
+                rides.push(ride);
+                rideHistory.push(ride);
+                displayRides(rides);
+                displayHistory(rideHistory);
+            } catch (error) {
+                console.error('राइड प्रकाशित करने में त्रुटि:', error);
+                alert('राइड प्रकाशित करने में समस्या!');
             }
-
-            if (!customFare || customFare <= 0) {
-                alert('कृपया अपना किराया सेट करें');
-                return;
-            }
-
-            const result = await calculateAndSetFare();
-            if (result.distance === 0) return;
-
-            const naturalFare = result.naturalFare;
-            const percentageDiff = Math.round(((customFare - naturalFare) / naturalFare) * 100);
-            const actualFare = Math.round(naturalFare + (naturalFare * (percentageDiff/100)));
-
-            // परिणाम दिखाएं
-            const fareDetails = document.getElementById('fare-details');
-            fareDetails.innerHTML = `
-                <h3>किराया विवरण</h3>
-                <p>प्राकृतिक किराया (₹${RATE_PER_KM}/किमी): ₹${naturalFare}</p>
-                <p>आपका प्रस्तावित किराया: ₹${customFare} (${percentageDiff >= 0 ? '+' : ''}${percentageDiff}%)</p>
-                <p>अंतिम किराया: ₹${actualFare}</p>
-                ${result.isFallback ? '<p class="fallback-warning">⚠️ नोट: यह हवाई दूरी पर आधारित है</p>' : ''}
-            `;
-
-            const ride = { 
-                start, 
-                end, 
-                customFare, 
-                naturalFare, 
-                percentageDiff, 
-                actualFare,
-                distance: result.distance,
-                isFallback: result.isFallback,
-                timestamp: new Date().toLocaleString('hi-IN') 
-            };
-            
-            rides.push(ride);
-            rideHistory.push(ride);
-            displayRides(rides);
-            displayHistory(rideHistory);
         }
 
         function displayRides(ridesToShow) {
-            const rideList = document.getElementById('ride-list');
-            rideList.innerHTML = ridesToShow.length ? 
-                ridesToShow.map(ride => {
-                    const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `
-                        <p>
-                            ${ride.start} से ${ride.end}<br>
-                            किराया: ₹${ride.actualFare}<br>
-                            (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)<br>
-                            ${ride.isFallback ? '⚠️ हवाई दूरी' : '🛣️ सड़क मार्ग'}
-                        </p>
-                    `;
-                }).join('') : 
-                '<p>कोई राइड उपलब्ध नहीं</p>';
+            try {
+                const rideList = document.getElementById('ride-list');
+                if (!rideList) return;
+                
+                rideList.innerHTML = ridesToShow.length ? 
+                    ridesToShow.map(ride => {
+                        const diffSign = ride.percentageDiff >= 0 ? '+' : '';
+                        return `
+                            <p>
+                                ${ride.start} से ${ride.end}<br>
+                                किराया: ₹${ride.actualFare}<br>
+                                (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)<br>
+                                ${ride.isFallback ? '⚠️ हवाई दूरी' : '🛣️ सड़क मार्ग'}
+                            </p>
+                        `;
+                    }).join('') : 
+                    '<p>कोई राइड उपलब्ध नहीं</p>';
+            } catch (error) {
+                console.error('राइड्स प्रदर्शित करने में त्रुटि:', error);
+            }
         }
 
         function displayHistory(history) {
-            const historyList = document.getElementById('ride-history');
-            historyList.innerHTML = history.length ? 
-                history.map(ride => {
-                    const diffSign = ride.percentageDiff >= 0 ? '+' : '';
-                    return `
-                        <p>
-                            ${ride.timestamp}<br>
-                            ${ride.start} से ${ride.end}<br>
-                            किराया: ₹${ride.actualFare}<br>
-                            (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)<br>
-                            ${ride.isFallback ? '⚠️ हवाई दूरी' : '🛣️ सड़क मार्ग'}
-                        </p>
-                    `;
-                }).join('') : 
-                '<p>कोई राइड इतिहास नहीं</p>';
+            try {
+                const historyList = document.getElementById('ride-history');
+                if (!historyList) return;
+                
+                historyList.innerHTML = history.length ? 
+                    history.map(ride => {
+                        const diffSign = ride.percentageDiff >= 0 ? '+' : '';
+                        return `
+                            <p>
+                                ${ride.timestamp}<br>
+                                ${ride.start} से ${ride.end}<br>
+                                किराया: ₹${ride.actualFare}<br>
+                                (प्राकृतिक: ₹${ride.naturalFare}, ${diffSign}${ride.percentageDiff}%)<br>
+                                ${ride.isFallback ? '⚠️ हवाई दूरी' : '🛣️ सड़क मार्ग'}
+                            </p>
+                        `;
+                    }).join('') : 
+                    '<p>कोई राइड इतिहास नहीं</p>';
+            } catch (error) {
+                console.error('इतिहास प्रदर्शित करने में त्रुटि:', error);
+            }
         }
 
         function resetForm() {
-            document.getElementById('start').value = '';
-            document.getElementById('end').value = '';
-            document.getElementById('custom-fare').value = '';
-            document.getElementById('fare-estimate').innerHTML = '';
-            document.getElementById('fare-details').innerHTML = '';
-            if (routeLayer) map.removeLayer(routeLayer);
-            if (map) map.eachLayer(layer => {
-                if (layer instanceof L.Marker) map.removeLayer(layer);
-            });
+            try {
+                document.getElementById('start').value = '';
+                document.getElementById('end').value = '';
+                document.getElementById('custom-fare').value = '';
+                document.getElementById('fare-estimate').innerHTML = '';
+                document.getElementById('fare-details').innerHTML = '';
+                
+                if (routeLayer && map) {
+                    map.removeLayer(routeLayer);
+                }
+                
+                if (map) {
+                    map.eachLayer(layer => {
+                        if (layer instanceof L.Marker) {
+                            map.removeLayer(layer);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('फॉर्म रीसेट करने में त्रुटि:', error);
+            }
         }
 
         // आपातकाल रिपोर्ट
@@ -573,7 +674,9 @@
         });
 
         // पेज लोड पर मानचित्र प्रारंभ करें
-        initMap();
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+        });
     </script>
 </body>
 </html>
