@@ -178,9 +178,8 @@
                     throw new Error('मानचित्र का DOM तत्व नहीं मिला');
                 }
                 // अगर मैप पहले से मौजूद है, तो उसे हटाएँ
-                if (map) {
+                if (map && typeof map.remove === 'function') {
                     map.remove();
-                    map = null;
                 }
                 map = L.map(mapElement).setView([20.5937, 78.9629], 5);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -241,10 +240,11 @@
             if (!map || typeof map.removeLayer !== 'function' || typeof map.fitBounds !== 'function') {
                 console.log('मानचित्र उपलब्ध नहीं है या अमान्य है, पुनः प्रारंभ कर रहा हूँ...');
                 initMap();
-                if (!map) {
-                    console.error('मानचित्र पुनर्जनन विफल');
-                    return { distance: 0, naturalFare: 0, time: 0, cities: [] };
-                }
+            }
+            if (!map || typeof map.removeLayer !== 'function') {
+                console.error('मानचित्र पुनर्जनन विफल, फॉलबैक पर जा रहा हूँ');
+                alert('मानचित्र लोड करने में विफल! कृपया पेज रिफ्रेश करें।');
+                return { distance: 0, naturalFare: 0, time: 0, cities: [] };
             }
 
             console.log('किराया और रूट गणना शुरू हो रही है...');
@@ -259,7 +259,7 @@
 
             try {
                 console.log('मानचित्र की स्थिति जांच: उपलब्ध');
-                if (routeLayer) {
+                if (routeLayer && map) {
                     console.log('पिछला रूट हटा रहा हूँ...');
                     map.removeLayer(routeLayer);
                     routeLayer = null;
@@ -274,10 +274,11 @@
                 if (data.code !== 'Ok') throw new Error('रूट नहीं मिला');
 
                 const coordinates = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                if (!map) throw new Error('मैप उपलब्ध नहीं है');
                 routeLayer = L.polyline(coordinates, { color: '#2563eb', weight: 4 }).addTo(map);
                 map.fitBounds(routeLayer.getBounds());
 
-                const distance = data.routes[0].distance / 1000;
+                const distance = data.routes[0].distance / 1000; // सड़क-आधारित दूरी
                 const naturalFare = Math.round(distance * RATE_PER_KM);
                 const time = distance / AVG_SPEED_KMH;
                 console.log(`दूरी: ${distance} किमी, प्राकृतिक किराया: ₹${naturalFare}, समय: ${time.toFixed(2)} घंटे`);
@@ -308,16 +309,16 @@
                 console.error('रूट गणना में त्रुटि:', error);
                 alert('रूट गणना में विफल: ' + error.message);
 
-                const distance = haversineDistance(startCoords.lat, startCoords.lon, endCoords.lat, endCoords.lon);
-                const naturalFare = Math.round(distance * RATE_PER_KM);
-                const time = distance / AVG_SPEED_KMH;
+                const airDistance = haversineDistance(startCoords.lat, startCoords.lon, endCoords.lat, endCoords.lon);
+                const naturalFare = Math.round(airDistance * RATE_PER_KM);
+                const time = airDistance / AVG_SPEED_KMH;
                 const cities = [startCoords.name, endCoords.name];
 
                 const fareEstimate = document.getElementById('fare-estimate');
-                fareEstimate.innerHTML = `अनुमानित किराया (फॉलबैक): ₹${naturalFare} | दूरी: ${distance.toFixed(2)} किमी | समय: ${formatTime(time)}<br>रास्ते के शहर: ${cities.join(', ')}`;
+                fareEstimate.innerHTML = `अनुमानित किराया (फॉलबैक - हवाई दूरी): ₹${naturalFare} | दूरी: ${airDistance.toFixed(2)} किमी | समय: ${formatTime(time)}<br>रास्ते के शहर: ${cities.join(', ')}<br><small>नोट: सड़क दूरी उपलब्ध नहीं, हवाई दूरी का उपयोग किया गया।</small>`;
                 console.log('फॉलबैक किराया DOM में सेट किया गया:', fareEstimate.innerHTML);
 
-                if (routeLayer && map) {
+                if (map && routeLayer) {
                     console.log('फॉलबैक में पिछला रूट हटा रहा हूँ...');
                     map.removeLayer(routeLayer);
                     routeLayer = null;
@@ -331,7 +332,7 @@
                     L.marker([endCoords.lat, endCoords.lon]).addTo(map).bindPopup(endCoords.name).openPopup();
                 }
 
-                return { distance, naturalFare, time, cities };
+                return { distance: airDistance, naturalFare, time, cities };
             }
         }
 
@@ -449,12 +450,12 @@
             document.getElementById('end').value = '';
             document.getElementById('custom-fare').value = '';
             document.getElementById('fare-estimate').innerHTML = '';
-            if (map && routeLayer) {
+            if (map && routeLayer && typeof map.removeLayer === 'function') {
                 console.log('फॉर्म रीसेट: रूट हटा रहा हूँ...');
                 map.removeLayer(routeLayer);
                 routeLayer = null;
             }
-            if (map) {
+            if (map && typeof map.eachLayer === 'function') {
                 map.eachLayer(layer => {
                     if (layer instanceof L.Marker) map.removeLayer(layer);
                 });
